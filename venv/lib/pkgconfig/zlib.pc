@@ -1,0 +1,13 @@
+prefix=/Users/ericchi/Projects/DFChess/venv
+exec_prefix=/Users/ericchi/Projects/DFChess/venv
+libdir=/Users/ericchi/Projects/DFChess/venv/lib
+sharedlibdir=/Users/ericchi/Projects/DFChess/venv/lib
+includedir=/Users/ericchi/Projects/DFChess/venv/include
+
+Name: zlib
+Description: zlib compression library
+Version: 1.2.13
+
+Requires:
+Libs: -L${libdir} -L${sharedlibdir} -lz
+Cflags: -I${includedir}
