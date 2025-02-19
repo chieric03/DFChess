@@ -7,6 +7,7 @@ Requires-Dist: pandas
 Requires-Dist: numpy
 Requires-Dist: ipykernel
 Requires-Dist: jupyter
+Requires-Dist: streamlit
 Dynamic: author
 Dynamic: author-email
 Dynamic: requires-dist
