@@ -2,4 +2,6 @@ pandas
 numpy
 ipykernel
 jupyter
+streamlit
+watchdog
 -e .
