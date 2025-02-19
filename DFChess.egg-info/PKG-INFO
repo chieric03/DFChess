@@ -1,0 +1,12 @@
+Metadata-Version: 2.2
+Name: DFChess
+Version: 1.0.0
+Author: Eric Chi
+Author-email: Chieric03@gmail.com
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: ipykernel
+Requires-Dist: jupyter
+Dynamic: author
+Dynamic: author-email
+Dynamic: requires-dist
