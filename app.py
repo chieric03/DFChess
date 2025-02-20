@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from src.moves import move_piece
+from src.moves import move_piece, is_check, is_checkmate, is_stalemate, submit_move, promote_pawn
 from src.board import create_board
 from src.logger import logger
 import base64
@@ -118,33 +118,6 @@ def render_board(board: pd.DataFrame) -> str:
     """
     return html
 
-    """
-    #A-H columns
-    html += "<tr><td style= 'width: 60px; height: 60px; background-color: #e1e1e1; text-align: center; vertical-align: middle;'></td>"
-    for col in range(8):
-        col_label = chr(ord("A") + col)
-        html += f'<td style= "width: 60px; height: 60px; background-color: #e1e1e1; text-align: center; vertical-align: middle;">{col_label}</td>'
-    html += "</tr>"
-
-
-
-    for i in range(8):
-        row_label = 8-i
-        html += f'<td style= "width: 60px; height: 60px; background-color: #e1e1e1; text-align: center; vertical-align: middle;">{row_label}</td>'
-        html += "<tr>"
-        for j in range(8):
-            square_color = '#789cac' if (i+j) % 2 == 0 else '#54616f'
-            piece = board.iat[i,j]
-            cell_html = f'<td style="width: 60px; height: 60px; background-color: {square_color}; text-align: center; vertical-align: middle;">'
-            if piece != ".":
-                img_url = images[piece]
-                cell_html += f'<img src="{img_url}" style="max-width: 50px; max-height: 50px;">'
-            cell_html += "</td>"
-            html += cell_html
-        html += "</tr>"
-    html += "</table>"
-    return html
-"""
 
 logger.info("Starting DFChess")
 
@@ -153,6 +126,47 @@ if "board" not in st.session_state:
     st.session_state.board = create_board()
 if "turn" not in st.session_state:
     st.session_state.turn = "w"
+if "move_history" not in st.session_state:
+    st.session_state.move_history = []
+if "board_history" not in st.session_state:
+    st.session_state.board_history = [st.session_state.board.copy(deep=True)]
+if "game_status" not in st.session_state:
+    st.session_state.game_status = "ongoing"
+if "promotion_pending" not in st.session_state:
+    st.session_state.promotion_pending = False
+if "promotion_pos" not in st.session_state:
+    st.session_state.promotion_pos = None
+
+#Sidebar
+st.sidebar.title("Game Options")
+
+#Move History
+move_hist_str = "\n".join([f"{move[0]} -> {move[1]}" for move in st.session_state.move_history])
+st.sidebar.text_area("Move History", value = move_hist_str, height = 200)
+
+#Undo Move
+if st.sidebar.button("Undo Move"):
+    if len(st.session_state.move_history) > 1:
+        st.session_state.board_history.pop() #Remove the last board state
+        st.session_state.board = st.session_state.board_history[-1].copy(deep=True)
+        st.session_state.move_history.pop() #Remove the last move
+        st.sidebar.success("Move undone!")
+        st.rerun()
+    else:
+        st.sidebar.error("Cannot undo further")
+
+#Reset Game
+if st.sidebar.button("Reset Game"):
+    st.session_state.board = create_board()
+    st.session_state.turn = "w"
+    st.session_state.move_history = []
+    st.session_state.board_history = [st.session_state.board.copy(deep=True)]
+    st.session_state.game_status = "ongoing"
+    st.session_state.promotion_pending = False
+    st.session_state.promotion_pos = None
+    st.sidebar.success("Game Reset!")
+    st.rerun()
+
 
 #Game Mode Selection
 st.sidebar.title("Game Mode")
@@ -161,11 +175,60 @@ game_mode = st.sidebar.radio("Select game mode", ["Player vs Player", "Player vs
 #Main Game
 st.title("DFChess")
 
-
 #Render the board
-#st.markdown(render_board(st.session_state.board), unsafe_allow_html=True)
 html_board = render_board(st.session_state.board)
-st.components.v1.html(html_board, height= 600)
+st.components.v1.html(html_board, height= 610)
+
+#Promotion UI
+if st.session_state.promotion_pending:
+    st.info("Promotion! Choose a piece:")
+    col1, col2, col3, col4 = st.columns(4)
+
+    if st.session_state.turn == "w":
+        queen_img = images["wQ"]
+        rook_img = images["wR"]
+        bishop_img = images["wB"]
+        knight_img = images["wN"]
+    else:
+        queen_img = images["bQ"]
+        rook_img = images["bR"]
+        bishop_img = images["bB"]
+        knight_img = images["bN"]
+
+    with col1:
+        st.image(queen_img, width = 50)
+        if st.button("Queen", key = "promo_q"):
+            st.session_state.board = promote_pawn(
+                st.session_state.board, st.session_state.promotion_pos, "Q"
+            )
+            st.session_state.promotion_pending = False
+            st.rerun()
+    with col2:
+        st.image(rook_img, width = 50)
+        if st.button("Rook", key = "promo_r"):
+            st.session_state.board = promote_pawn(
+                st.session_state.board, st.session_state.promotion_pos, "R"
+            )
+            st.session_state.promotion_pending = False
+            st.rerun()
+    with col3:
+        st.image(bishop_img, width = 50)
+        if st.button("Bishop", key = "promo_b"):
+            st.session_state.board = promote_pawn(
+                st.session_state.board, st.session_state.promotion_pos, "B"
+            )
+            st.session_state.promotion_pending = False
+            st.rerun()
+    with col4:
+        st.image(knight_img, width = 50)
+        if st.button("Knight", key = "promo_n"):
+            st.session_state.board = promote_pawn(
+                st.session_state.board, st.session_state.promotion_pos, "N"
+            )
+            st.session_state.promotion_pending = False
+            st.rerun()
+            
+        
 
 #Move Input
 st.subheader(f"Move ({'White' if st.session_state.turn == 'w' else 'Black'})")
@@ -177,10 +240,6 @@ with EndCol:
 
 if st.button("Submit:"):
     if start_pos and end_pos:
-        new_board, valid = move_piece(st.session_state.board, start_pos, end_pos)
-        if valid:
-            st.session_state.board = new_board
-            st.session_state.turn = "b" if st.session_state.turn == "w" else "w"
-            st.rerun()
+        submit_move(start_pos, end_pos)
     else:
         st.error("Please enter both start and end positions")
