@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from src.moves import move_piece
 from src.board import create_board
+from src.logger import logger
 import base64
 
 def get_base64_image(svg_path: str) -> str:
@@ -40,8 +41,96 @@ def render_board(board: pd.DataFrame) -> str:
     Parameters:
         board (pd.DataFrame): The chess board DataFrame
     """
-    html = '<table style= "border-collapse: collapse; border: 1px solid black;">'
+     #Initializing Board
+    html = """
+    <style>
+      .chess-board {
+        border-collapse: collapse;
+        margin: auto;
+      }
+      .chess-board td {
+        width: 60px;
+        height: 60px;
+        text-align: center;
+        vertical-align: middle;
+        border: 1px solid black;
+        padding: 0;
+      }
+      .label-cell {
+        background-color: #e1e1e1;
+        font-weight: bold;
+      }
+      .light-square {
+        background-color: #789cac;
+      }
+      .dark-square {
+        background-color: #54616f;
+      }
+      .chess-board img {
+        max-width: 50px;
+        max-height: 50px;
+      }
+    </style>
+    <div>
+        <table class="chess-board">
+    """
+
+    #A-H columns
+    html += '<tr>'
+    html += '<td class="label-cell"></td>'
+    for col in range(8):
+        col_label = chr(ord("A") + col)
+        html += f'<td class="label-cell">{col_label}</td>'
+    html += '<td class="label-cell"></td>'
+    html += '</tr>'
+
+    #For each following row, row label and cells
     for i in range(8):
+        row_label = 8-i
+        html += '<tr>'
+        html += f'<td class="label-cell">{row_label}</td>'
+
+        for j in range(8):
+            square_color = 'light-square' if (i+j) % 2 == 0 else 'dark-square'
+            piece = board.iat[i,j]
+            cell_html = f'<td class="{square_color}">'
+            if piece != ".":
+                img_url = images[piece]
+                cell_html += f'<img src="{img_url}">'
+            cell_html += "</td>"
+            html += cell_html
+        html += f'<td class="label-cell">{row_label}</td>'
+        html += "</tr>"
+
+    #bottom row labels
+    html += "<tr>"
+    html += '<td class="label-cell"></td>'
+    for j in range(8):
+        col_letter = chr(ord('A') + j)
+        html += f'<td class="label-cell">{col_letter}</td>'
+    html += '<td class="label-cell"></td>'
+    html += "</tr>"
+
+
+    html += """
+        </table>
+    </div>
+    """
+    return html
+
+    """
+    #A-H columns
+    html += "<tr><td style= 'width: 60px; height: 60px; background-color: #e1e1e1; text-align: center; vertical-align: middle;'></td>"
+    for col in range(8):
+        col_label = chr(ord("A") + col)
+        html += f'<td style= "width: 60px; height: 60px; background-color: #e1e1e1; text-align: center; vertical-align: middle;">{col_label}</td>'
+    html += "</tr>"
+
+
+
+    for i in range(8):
+        row_label = 8-i
+        html += f'<td style= "width: 60px; height: 60px; background-color: #e1e1e1; text-align: center; vertical-align: middle;">{row_label}</td>'
         html += "<tr>"
         for j in range(8):
             square_color = '#789cac' if (i+j) % 2 == 0 else '#54616f'
@@ -55,7 +144,9 @@ def render_board(board: pd.DataFrame) -> str:
         html += "</tr>"
     html += "</table>"
     return html
+"""
 
+logger.info("Starting DFChess")
 
 #Session State Initialization
 if "board" not in st.session_state:
@@ -69,13 +160,15 @@ game_mode = st.sidebar.radio("Select game mode", ["Player vs Player", "Player vs
 
 #Main Game
 st.title("DFChess")
-st.write(f"!!Current Turn: {'White' if st.session_state.turn == 'w' else 'Black'}!!")
+
 
 #Render the board
-st.markdown(render_board(st.session_state.board), unsafe_allow_html=True)
+#st.markdown(render_board(st.session_state.board), unsafe_allow_html=True)
+html_board = render_board(st.session_state.board)
+st.components.v1.html(html_board, height= 600)
 
 #Move Input
-st.subheader("Move:")
+st.subheader(f"Move ({'White' if st.session_state.turn == 'w' else 'Black'})")
 StartCol, EndCol = st.columns(2)
 with StartCol:
     start_pos = st.text_input("Start Position (e.g. A2):", value = "")
@@ -84,16 +177,10 @@ with EndCol:
 
 if st.button("Submit:"):
     if start_pos and end_pos:
-        updated_board = move_piece(st.session_state.board, start_pos, end_pos)
-
-        st.session_state.board = updated_board
-
-        st.session_state.turn = "b" if st.session_state.turn == "w" else "w"
-
-        st.rerun()
-
+        new_board, valid = move_piece(st.session_state.board, start_pos, end_pos)
+        if valid:
+            st.session_state.board = new_board
+            st.session_state.turn = "b" if st.session_state.turn == "w" else "w"
+            st.rerun()
     else:
         st.error("Please enter both start and end positions")
-
-
-    
