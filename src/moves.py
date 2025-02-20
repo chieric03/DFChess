@@ -1,4 +1,5 @@
-
+import streamlit as st
+import src.logger as logger
 def parse_notation(coord: str) -> tuple:
     """
     Takes a user imput that is in chess notation and splits it into board coordinates
@@ -27,9 +28,15 @@ def move_piece(board,start,end):
     piece = board.iat[start[0], start[1]]
 
     if piece == ".":
-        print("No piece at starting position")
-        return board
+        st.error("No piece at starting position!")
+        return board, False
     
+    current_turn = st.session_state.turn
+    if piece[0] != current_turn:
+        st.error("It's not your turn!")
+        return board, False
+
+
     valid_move = False
 
     if piece[1] == "P":
@@ -45,17 +52,17 @@ def move_piece(board,start,end):
     elif piece[1] == "K":
         valid_move = is_valid_move_king(piece, start, end, board)
     else:
-        print("Invalid piece")
-        return board
+        st.error("Invalid piece!")
+        return board, False
     
     if not valid_move:
-        print("Invalid move")
-        return board
+        st.error("Invalid move!")
+        return board, False
     
     board.iat[end[0], end[1]] = piece
     board.iat[start[0], start[1]] = "."
     
-    return board
+    return board, True
 
 
 
@@ -77,7 +84,7 @@ def is_valid_move_pawn(piece, start, end, board):
     direction = -1 if piece[0] == "w" else 1
 
     #One square forward
-    if cs == cs and rs == re + direction and board.iat[re, ce] == ".":
+    if cs == ce and re == rs + direction and board.iat[re, ce] == ".":
         return True
     
     #Two squares forward
