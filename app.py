@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
+import base64
 from src.moves import move_piece, is_check, is_checkmate, is_stalemate, submit_move, promote_pawn
 from src.board import create_board
 from src.logger import logger
-import base64
 from src.ui import get_base64_image, images, interactive_board, render_board, show_two_boards_side_by_side
+from src.AI_Opponent import evaluate_board, get_all_valid_moves
 
 st.set_page_config(layout="wide")
 
@@ -29,7 +30,11 @@ if "promotion_pos" not in st.session_state:
 if "last_error" not in st.session_state:
     st.session_state.last_error = None
 
-#Castling State
+if "game_mode" not in st.session_state:
+    st.session_state.game_mode = "PvP"
+if "player_side" not in st.session_state:
+    st.session_state.player_side = "White"
+
 if "castling_rights" not in st.session_state:
     st.session_state.castling_rights = {
         "wK": True,
@@ -77,6 +82,13 @@ if st.sidebar.button("Reset Game"):
 
 #Game Mode Selection
 st.sidebar.title("Game Mode")
+game_mode = st.sidebar.selectbox("Select Game Mode", ["PvP", "PvAI"])
+st.session_state.game_mode = game_mode
+
+if game_mode == "PvAI":
+    player_side = st.sidebar.radio("Select Side", ["White", "Black"])
+    st.session_state.player_side = player_side
+
 
 #Main Game
 st.title("DFChess")

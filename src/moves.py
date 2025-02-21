@@ -1,7 +1,7 @@
 import src.logger as logger
 import streamlit as st
 import pandas as pd
-
+from src.AI_Opponent import get_ai_move, simulate_move
 def parse_notation(coord: str) -> tuple:
     """
     Takes a user imput that is in chess notation and splits it into board coordinates
@@ -136,6 +136,19 @@ def submit_move(start, end):
     #Change turn
     new_turn = "b" if st.session_state.turn == "w" else "w"
 
+    if st.session_state.game_mode == "PvAI":
+        human_side = st.session_state.player_side[0].lower()  # e.g. "w" or "b"
+        if st.session_state.turn != human_side:
+            ai_move = get_ai_move(st.session_state.board, st.session_state.turn, depth=3)
+            st.write("AI Move:", ai_move)  # Debug output
+            if ai_move:
+                st.session_state.board = simulate_move(st.session_state.board, ai_move)
+                st.session_state.move_history.append(ai_move)
+                st.session_state.board_history.append(st.session_state.board.copy(deep=True))
+                st.session_state.turn = human_side
+                st.rerun()
+
+
     #Check for check
     if is_check(st.session_state.board, new_turn):
         st.session_state.last_error = f"Check! {'White' if new_turn == 'b' else 'Black'} is in check!"
@@ -149,6 +162,7 @@ def submit_move(start, end):
             return
         
     st.session_state.turn = new_turn
+
     st.rerun()
 
 def find_king(board: pd.DataFrame, color: str) -> tuple:
