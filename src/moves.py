@@ -26,22 +26,32 @@ def move_piece(board,start,end):
     
     
     piece = board.iat[start[0], start[1]]
-
+    color = piece[0]
+    st.session_state.passant_target = None
     if piece == ".":
-        st.error("No piece at starting position!")
+        st.session_state.last_error = "No piece at starting position!"
         return board, False
     
     current_turn = st.session_state.turn
     if piece[0] != current_turn:
-        st.error("It's not your turn!")
+        st.session_state.last_error = "It's not your turn!"
         return board, False
 
 
     piece_type = piece[1]
     valid_move = False
 
-    if piece_type == "P":
+    if piece[1] == "P":
         valid_move = is_valid_move_pawn(piece, start, end, board)
+        direction = -1 if color == "w" else 1
+        # If the pawn moves two squares forward, set en passant target.
+        if abs(end[0] - start[0]) == 2:
+            st.session_state.en_passant_target = (start[0] + direction, start[1])
+        # En passant capture: pawn moves diagonally into an empty square.
+        if abs(end[1] - start[1]) == 1 and board.iat[end[0], end[1]] == ".":
+            if st.session_state.get("en_passant_target") == (end[0], end[1]):
+                # Remove the opponent pawn that's being captured en passant.
+                board.iat[start[0], end[1]] = "."
     elif piece_type == "R":
         valid_move = is_valid_move_rook(piece, start, end, board)
     elif piece_type == "B":
@@ -53,18 +63,18 @@ def move_piece(board,start,end):
     elif piece_type == "K":
         valid_move = is_valid_move_king(piece, start, end, board)
     else:
-        st.error("Invalid piece!")
+        st.session_state.last_error = "Invalid piece!"
         return board, False
     
     if not valid_move:
-        st.error("Invalid move!")
+        st.session_state.last_error = "Invalid move!"
         return board, False
     
     board_copy = board.copy(deep = True)
     board_copy.iat[end[0], end[1]] = piece
     board_copy.iat[start[0], start[1]] = "."
     if is_check(board_copy, current_turn):
-        st.error("Illegal Move! This leaves you in Check!")
+        st.session_state.last_error = "Illegal Move! This leaves you in Check!"
         return board, False
 
     board.iat[end[0], end[1]] = piece
@@ -86,7 +96,7 @@ def submit_move(start, end):
 
     #If game is over, do nothing
     if st.session_state.game_status != "ongoing":
-        st.error("Game is over! Please restart")
+        st.session_state.last_error= "Game is over! Please restart"
         return
     
     #Attempt to move the piece
@@ -119,7 +129,7 @@ def submit_move(start, end):
                 break
             
     if promotion_triggered:
-        st.warning("Pawn promotion pending!")
+        st.session_state.last_error = "Pawn promotion pending!"
         st.rerun()
         return
     
@@ -128,13 +138,13 @@ def submit_move(start, end):
 
     #Check for check
     if is_check(st.session_state.board, new_turn):
-        st.warning(f"Check! {'White' if new_turn == 'b' else 'Black'} is in check!")
+        st.session_state.last_error = f"Check! {'White' if new_turn == 'b' else 'Black'} is in check!"
         if is_checkmate(st.session_state.board, new_turn):
-            st.error(f"Checkmate! {'White' if new_turn == 'b' else 'Black'} wins!")
+            st.session_state.last_error= f"Checkmate! {'White' if new_turn == 'b' else 'Black'} wins!"
             st.session_state.game_status = "game_over"
             return
         elif is_stalemate(st.session_state.board, new_turn):
-            st.error("Stalemate! It's a draw!")
+            st.session_state.last_error= "Stalemate! It's a draw!"
             st.session_state.game_status = "game_over"
             return
         
@@ -303,22 +313,29 @@ def is_valid_move_pawn(piece, start, end, board):
     """
     rs, cs = start
     re, ce = end
-    direction = -1 if piece[0] == "w" else 1
+    color = piece[0]
+    direction = -1 if color == "w" else 1
+    start_row = 6 if color == "w" else 1
 
-    #One square forward
-    if cs == ce and re == rs + direction and board.iat[re, ce] == ".":
-        return True
-    
-    #Two squares forward
-    if ((piece[0] == "w" and rs == 6) or (piece[0] == "b" and rs == 1)) and cs == ce:
-        if (re == rs + 2 * direction and
-            board.iat[rs + direction, cs] == "." and
-            board.iat[re, ce] == "."):
+    #Moving forward
+    if cs == ce:
+        #single step
+        if re == rs + direction and board.iat[re, ce] == ".":
             return True
+        #double step
+        if rs == start_row and re == rs + 2 * direction:
+            if board.iat[re, ce] == "." and board.iat[re - direction, ce] == ".":
+                return True
+    
         
     #Capture
     if abs(cs - ce) == 1 and re == rs + direction:
-        if board.iat[re, ce] != "." and board.iat[re, ce][0] != piece[0]:
+        if board.iat[re, ce] != "." and board.iat[re, ce][0] != color:
+            return True
+        #En passant
+        if "en_passant_target" in st.session_state and st.session_state.en_passant_target == (re, ce):
+            if board.iat[rs, ce] == color + "P":
+                return True
             return True
         
     return False
@@ -513,6 +530,44 @@ def is_valid_move_king(piece, start, end, board):
         return True
     else: #Friendly piece
         return False
+    
+    #Castling
+    if rs == re and abso(ce-cs) == 2:
+        if piece[0] == "w" and start == (7,4):
+            if ce == 6: #Kingside
+                if board.iat[7,5] != "." or board.iat[7,6] != ".":
+                    return False
+                if is_square_attacked(board, (7,4), "b") or is_square_attacked(board, (7,5), "b") or is_square_attacked(board, (7,6), "b"):
+                    return False
+                if not st.session_state.castling_rights("wK", True) or not st.session_state.castling_rights.get("wR_kingside", True):
+                    return False
+                return True
+            elif ce == 2: #Queenside
+                if board.iat[7,1] != "." or board.iat[7,2] != "." or board.iat[7,3] != ".":
+                    return False
+                if is_square_attacked(board, (7,4), "b") or is_square_attacked(board, (7,3), "b") or is_square_attacked(board, (7,2), "b"):
+                    return False
+                if not st.session_state.castling_rights("wK", True) or not st.session_state.castling_rights.get("wR_queenside", True):
+                    return False
+                return True
+        elif piece[0] == "b" and start == (0,4):
+            if ce == 6:
+                if board.iat[0,5] != "." or board.iat[0,6] != ".":
+                    return False
+                if is_square_attacked(board, (0,4), "w") or is_square_attacked(board, (0,5), "w") or is_square_attacked(board, (0,6), "w"):
+                    return False
+                if not st.session_state.castling_rights("bK", True) or not st.session_state.castling_rights.get("bR_kingside", True):
+                    return False
+                return True
+            if ce == 2:
+                if board.iat[0,1] != "." or board.iat[0,2] != "." or board.iat[0,3] != ".":
+                    return False
+                if is_square_attacked(board, (0,4), "w") or is_square_attacked(board, (0,3), "w") or is_square_attacked(board, (0,2), "w"):
+                    return False
+                if not st.session_state.castling_rights("bK", True) or not st.session_state.castling_rights.get("bR_queenside", True):
+                    return False
+                return True
+    return False
     
 def promote_pawn(board: pd.DataFrame, pos: tuple, piece: str) -> pd.DataFrame:
     """
