@@ -5,7 +5,6 @@ from src.moves import move_piece, is_check, is_checkmate, is_stalemate, submit_m
 from src.board import create_board
 from src.logger import logger
 from src.ui import get_base64_image, images, interactive_board, render_board, show_two_boards_side_by_side
-# Removed unused imports: evaluate_board, get_all_valid_moves from AI_Opponent
 
 st.set_page_config(layout="wide")
 
@@ -122,30 +121,14 @@ if st.session_state.game_mode == "PvAI":
             st.session_state.ai_move_triggered_init = False # Ensure initial AI move flag is reset
             st.sidebar.success(f"PvAI Game Started! You are playing as {st.session_state.player_side}.")
             
-            # --- Trigger initial AI move *after* Start Game is pressed if player chose Black ---
+            # Trigger initial AI move *after* Start Game is pressed if player choses Black
             if st.session_state.player_side == "Black" and st.session_state.turn == "w":
                 st.session_state.ai_move_triggered_init = True # Set flag
                 from src.moves import _handle_post_move_updates 
-                # Need to ensure _handle_post_move_updates doesn't change turn back immediately
-                # Let's modify _handle_post_move_updates slightly or call AI directly?
-                # Calling _handle_post_move_updates might be okay if it handles the turn correctly.
-                # Let's try calling it first.
-                _handle_post_move_updates() 
-                # No explicit rerun here, _handle_post_move_updates should handle it.
-            else:
-                 st.rerun() # Rerun to disable widgets even if AI doesn't move first
-        
-# --- Remove the old initial AI move trigger location ---
-# if "ai_move_triggered_init" not in st.session_state:
-#     st.session_state.ai_move_triggered_init = False 
 
-# if st.session_state.game_mode == "PvAI" and \
-#    st.session_state.player_side == "Black" and \
-#    st.session_state.turn == "w" and \
-#    not st.session_state.ai_move_triggered_init:
-#     st.session_state.ai_move_triggered_init = True 
-#     from src.moves import _handle_post_move_updates 
-#     _handle_post_move_updates() 
+                _handle_post_move_updates() 
+            else:
+                 st.rerun() 
 
 #Main Game
 st.title("DFChess")
@@ -164,10 +147,6 @@ else:
     st.info("Select your side and click 'Start PvAI Game' in the sidebar.")
 
 
-#Error Message Display (Consider moving this inside the conditional rendering)
-#if st.session_state.get("last_error"):
-#    st.error(st.session_state.last_error)
-#    st.session_state.last_error = None
 
 #Promotion UI
 if st.session_state.promotion_pending:

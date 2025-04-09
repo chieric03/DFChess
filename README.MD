@@ -13,5 +13,10 @@ To run:
 
 ![Screenshot](images/UI.png)
 
-% -pip install -r requirements.txt
-% streamlit run app.py
+#### the model for the AI opponent was trained using a lichess dataset
+The results of the initial training of the model was
+
+![Screenshot](images/model_training_results.png)
+I only used 5 epochs but the training set was extremely large. Wanted to rush into implementation before training a better model so the AI opponent is quite easily beatable for anyone with basic chess knowledge.
+
+To switch to Singleplayer mode, use the Game Mode radio and switch to PVAi and choose a color to play as. 

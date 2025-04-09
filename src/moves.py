@@ -222,7 +222,7 @@ def _handle_post_move_updates():
             if ai_move:
                 start_coord, end_coord = ai_move
                 
-                # Get piece *before* simulating the move
+                # Get piece before simulating the move
                 piece_moved_by_ai = st.session_state.board.iat[start_coord[0], start_coord[1]]
                 
                 # Simulate the move on the board
