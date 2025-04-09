@@ -19,6 +19,25 @@ def parse_notation(coord: str) -> tuple:
     row_index = 8 - row_number
     return row_index, col_index
 
+def coords_to_notation(coords: tuple) -> str | None:
+    """ Converts ((start_row, start_col), (end_row, end_col)) to standard notation like 'a1h8'. """
+    try:
+        (start_row, start_col), (end_row, end_col) = coords
+        
+        # Basic bounds check
+        if not (0 <= start_row <= 7 and 0 <= start_col <= 7 and \
+                0 <= end_row <= 7 and 0 <= end_col <= 7):
+            return None
+            
+        start_file_char = chr(ord('a') + start_col)
+        start_rank_char = str(8 - start_row) # Convert DataFrame row index back to chess rank
+        end_file_char = chr(ord('a') + end_col)
+        end_rank_char = str(8 - end_row)   # Convert DataFrame row index back to chess rank
+        
+        return f"{start_file_char}{start_rank_char}{end_file_char}{end_rank_char}"
+    except Exception: # Catch potential unpacking errors or other issues
+        return None
+
 def move_piece(board,start,end):
     """
     Moves a piece on the board
@@ -134,10 +153,20 @@ def submit_move(start, end):
     
     #Simulate and update gamestate
     st.session_state.board = updated_board
-    st.session_state.move_history.append((start, end, piece))
+    # Record move with original notation
+    st.session_state.move_history.append((start, end, piece)) 
     st.session_state.board_history.append(updated_board.copy(deep=True))
 
-    #Check for promotion
+    # Call the consolidated post-move handler
+    _handle_post_move_updates()
+
+
+def _handle_post_move_updates():
+    """
+    Handles updates after a valid move is made: promotion check, turn change,
+    AI move trigger (if applicable), and game status checks (check, mate, stalemate).
+    """
+    # Check for promotion
     promotion_triggered = False
     if st.session_state.turn == 'w':
         for col in range(8):
@@ -187,16 +216,28 @@ def submit_move(start, end):
         # It's AI's turn if the current turn is not the human side
         if st.session_state.turn != human_side:
             st.write("AI is thinking...") # Indicate AI is processing
-            ai_move = get_ai_move(st.session_state.board, st.session_state.turn, depth=3) # Use current turn (which is AI's)
+            # Call get_ai_move without the depth argument (ML model doesn't use it)
+            ai_move = get_ai_move(st.session_state.board, st.session_state.turn) 
             st.write(f"AI Move: {ai_move}")  # Debug output
             if ai_move:
-                # Convert notation if needed (assuming get_ai_move returns coordinates)
                 start_coord, end_coord = ai_move
+                
+                # Get piece *before* simulating the move
+                piece_moved_by_ai = st.session_state.board.iat[start_coord[0], start_coord[1]]
+                
                 # Simulate the move on the board
                 st.session_state.board = simulate_move(st.session_state.board, ai_move)
-                # Record move (convert coords back to notation if needed for history)
-                # TODO: Add function to convert coords back to notation if desired for history
-                st.session_state.move_history.append(ai_move) 
+                
+                # Convert AI move coordinates to notation for history
+                ai_move_notation = coords_to_notation(ai_move)
+                
+                # Record history in the consistent (start_notation, end_notation, piece) format
+                if ai_move_notation:
+                    st.session_state.move_history.append((ai_move_notation[:2], ai_move_notation[2:], piece_moved_by_ai))
+                else:
+                    # Fallback: store raw coordinates if conversion fails
+                    st.session_state.move_history.append((str(start_coord), str(end_coord), piece_moved_by_ai)) # Still record the piece
+                    
                 st.session_state.board_history.append(st.session_state.board.copy(deep=True))
                 
                 # Check for check/mate/stalemate *after* AI move
@@ -221,26 +262,14 @@ def submit_move(start, end):
             st.rerun() # Rerun after AI move completes
             return # Exit after AI move sequence
 
-    # If not PvAI or it's human's turn in PvAI, just rerun to update UI
+    # If not PvAI or it was the human's turn in PvAI and AI didn't move/game didn't end, rerun.
+    # The AI move logic already includes a rerun and return if it executes.
     st.rerun()
 
-def find_king(board: pd.DataFrame, color: str) -> tuple:
-    """
-    Find the position of the king of the given color on the board
 
-    Parameters:
-        board (pd.DataFrame): The chess board
-        color (str): The color of the king to find
 
-    Returns:
-        tuple: The row and column index
-    """
-    king_name = color + "K"
-    for i in range(8):
-        for j in range(8):
-            if board.iat[i, j] == king_name:
-                return i, j
-    return None
+
+
 
 def can_piece_attack_square(piece: str, start: tuple, end: tuple, board: pd.DataFrame) -> bool:
     """
@@ -303,13 +332,14 @@ def is_stalemate(board: pd.DataFrame, color: str) -> bool:
     Returns:
         bool: True if the player is in stalemate, False otherwise
     """
-    from src.AI_Opponent.AI_Opponent import get_all_valid_moves 
+    # NOTE: This now needs get_all_valid_moves_for_ai from validation.py
+    from src.validation import get_all_valid_moves_for_ai 
 
     if is_check(board, color): # Use is_check from validation.py
         return False # Cannot be stalemate if in check
 
     # Check if any valid moves exist for the player
-    valid_moves = get_all_valid_moves(board, color) # get_all_valid_moves handles the check for moving into check
+    valid_moves = get_all_valid_moves_for_ai(board, color) # Use the AI-safe version
     
     return not valid_moves # Stalemate if not in check and no valid moves
 
@@ -325,13 +355,15 @@ def is_checkmate(board: pd.DataFrame, color: str) -> bool:
     Returns:
         bool: True if the player is in checkmate, False otherwise
     """
-    from src.AI_Opponent.AI_Opponent import get_all_valid_moves
+    # Import locally to avoid circular dependency at module level
+    # NOTE: This now needs get_all_valid_moves_for_ai from validation.py
+    from src.validation import get_all_valid_moves_for_ai
 
-    if not is_check(board, color):
+    if not is_check(board, color): # Use is_check from validation.py
         return False # Cannot be checkmate if not in check
 
     # Check if any valid moves exist for the player
-    valid_moves = get_all_valid_moves(board, color) # get_all_valid_moves handles the check for moving into check
+    valid_moves = get_all_valid_moves_for_ai(board, color) # Use the AI-safe version
 
     return not valid_moves # Checkmate if in check and no valid moves
 

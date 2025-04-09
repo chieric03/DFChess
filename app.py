@@ -5,7 +5,7 @@ from src.moves import move_piece, is_check, is_checkmate, is_stalemate, submit_m
 from src.board import create_board
 from src.logger import logger
 from src.ui import get_base64_image, images, interactive_board, render_board, show_two_boards_side_by_side
-from src.AI_Opponent.AI_Opponent import evaluate_board, get_all_valid_moves
+# Removed unused imports: evaluate_board, get_all_valid_moves from AI_Opponent
 
 st.set_page_config(layout="wide")
 
@@ -34,6 +34,8 @@ if "game_mode" not in st.session_state:
     st.session_state.game_mode = "PvP"
 if "player_side" not in st.session_state:
     st.session_state.player_side = "White"
+if "game_started" not in st.session_state:
+    st.session_state.game_started = False # Flag to track if PvAI game is active
 
 if "castling_rights" not in st.session_state:
     st.session_state.castling_rights = {
@@ -66,7 +68,7 @@ if st.sidebar.button("Undo Move"):
     else:
         st.sidebar.error("Cannot undo further")
 
-#Reset Game
+#Reset Game - Also reset game_started flag
 if st.sidebar.button("Reset Game"):
     st.session_state.board = create_board()
     st.session_state.turn = "w"
@@ -75,20 +77,75 @@ if st.sidebar.button("Reset Game"):
     st.session_state.game_status = "ongoing"
     st.session_state.promotion_pending = False
     st.session_state.promotion_pos = None
+    st.session_state.game_started = False # Reset flag
+    st.session_state.ai_move_triggered_init = False # Reset initial AI move flag
     st.sidebar.success("Game Reset!")
     st.rerun()
 
 
 
-#Game Mode Selection
+#Game Mode Selection & Start Button
 st.sidebar.title("Game Mode")
-game_mode = st.sidebar.selectbox("Select Game Mode", ["PvP", "PvAI"])
-st.session_state.game_mode = game_mode
 
-if game_mode == "PvAI":
-    player_side = st.sidebar.radio("Select Side", ["White", "Black"])
-    st.session_state.player_side = player_side
+# Determine if widgets should be disabled (game started or not PvP)
+disable_widgets = st.session_state.game_started and st.session_state.game_mode == "PvAI"
 
+game_mode = st.sidebar.selectbox(
+    "Select Game Mode", 
+    ["PvP", "PvAI"], 
+    index=["PvP", "PvAI"].index(st.session_state.game_mode), # Set current value
+    disabled=disable_widgets 
+)
+# Update game mode only if changed and game not started
+if game_mode != st.session_state.game_mode and not disable_widgets:
+    st.session_state.game_mode = game_mode
+    # Reset relevant states if mode changes? Maybe not needed if reset button is used.
+    st.rerun() 
+
+# PvAI specific options
+if st.session_state.game_mode == "PvAI":
+    player_side = st.sidebar.radio(
+        "Select Side", 
+        ["White", "Black"], 
+        index=["White", "Black"].index(st.session_state.player_side), # Set current value
+        disabled=disable_widgets
+    )
+    # Update player side only if changed and game not started
+    if player_side != st.session_state.player_side and not disable_widgets:
+         st.session_state.player_side = player_side
+         st.rerun()
+
+    # Show "Start Game" button only if PvAI mode is selected AND game hasn't started
+    if not st.session_state.game_started:
+        if st.sidebar.button("Start PvAI Game"):
+            st.session_state.game_started = True
+            st.session_state.ai_move_triggered_init = False # Ensure initial AI move flag is reset
+            st.sidebar.success(f"PvAI Game Started! You are playing as {st.session_state.player_side}.")
+            
+            # --- Trigger initial AI move *after* Start Game is pressed if player chose Black ---
+            if st.session_state.player_side == "Black" and st.session_state.turn == "w":
+                st.session_state.ai_move_triggered_init = True # Set flag
+                from src.moves import _handle_post_move_updates 
+                # Need to ensure _handle_post_move_updates doesn't change turn back immediately
+                # Let's modify _handle_post_move_updates slightly or call AI directly?
+                # Calling _handle_post_move_updates might be okay if it handles the turn correctly.
+                # Let's try calling it first.
+                _handle_post_move_updates() 
+                # No explicit rerun here, _handle_post_move_updates should handle it.
+            else:
+                 st.rerun() # Rerun to disable widgets even if AI doesn't move first
+        
+# --- Remove the old initial AI move trigger location ---
+# if "ai_move_triggered_init" not in st.session_state:
+#     st.session_state.ai_move_triggered_init = False 
+
+# if st.session_state.game_mode == "PvAI" and \
+#    st.session_state.player_side == "Black" and \
+#    st.session_state.turn == "w" and \
+#    not st.session_state.ai_move_triggered_init:
+#     st.session_state.ai_move_triggered_init = True 
+#     from src.moves import _handle_post_move_updates 
+#     _handle_post_move_updates() 
 
 #Main Game
 st.title("DFChess")
@@ -96,12 +153,18 @@ st.subheader(f"Move ({'White' if st.session_state.turn == 'w' else 'Black'})")
 
 
 
-#Render the board
+#Render the board - Only allow input if game started or PvP
+if st.session_state.game_mode == "PvP" or st.session_state.game_started:
+    show_two_boards_side_by_side()
+else:
+    # Display board statically if PvAI game hasn't started
+    st.subheader("Board")
+    html_board = render_board(st.session_state.board)
+    st.components.v1.html(html_board, height=610)
+    st.info("Select your side and click 'Start PvAI Game' in the sidebar.")
 
-show_two_boards_side_by_side()
 
-
-#Error Message
+#Error Message Display (Consider moving this inside the conditional rendering)
 #if st.session_state.get("last_error"):
 #    st.error(st.session_state.last_error)
 #    st.session_state.last_error = None
@@ -154,5 +217,3 @@ if st.session_state.promotion_pending:
             )
             st.session_state.promotion_pending = False
             st.rerun()
-
-        

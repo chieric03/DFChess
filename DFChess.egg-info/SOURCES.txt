@@ -9,3 +9,4 @@ src/board.py
 src/logger.py
 src/moves.py
 src/ui.py
+src/validation.py

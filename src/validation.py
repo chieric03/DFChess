@@ -371,3 +371,52 @@ def is_check(board: pd.DataFrame, color: str) -> bool:
     attacker_color = "b" if color == "w" else "w"
     return is_square_attacked(board, king_pos, attacker_color)
 
+
+# AI OPPONENT IMPLEMENTATION
+
+def get_all_valid_moves_for_ai(board: pd.DataFrame, turn: str) -> list:
+    """
+    Generates all valid moves for the given player's turn.
+    This version is intended for use by the AI and does not rely on session state.
+    It assumes default castling rights and no en passant target for simplicity,
+    as the AI currently doesn't track these states explicitly.
+    A more robust AI would need to receive this state information.
+    """
+    valid_moves = []
+    # Assume default state for AI context (no castling, no en passant)
+    en_passant_target = None 
+    castling_rights = {} # Empty dict implies no castling rights available
+
+    for i in range(8):
+        for j in range(8):
+            piece = board.iat[i, j]
+            if piece != '.' and piece[0] == turn:
+                for r in range(8):
+                    for c in range(8):
+                        if (i, j) == (r, c):
+                            continue
+                        
+                        pseudo_legal = False
+                        if piece[1] == "P":
+                            pseudo_legal = is_valid_move_pawn(piece, (i, j), (r, c), board, en_passant_target)
+                        elif piece[1] == "R":
+                            pseudo_legal = is_valid_move_rook(piece, (i, j), (r, c), board)
+                        elif piece[1] == "B":
+                            pseudo_legal = is_valid_move_bishop(piece, (i, j), (r, c), board)
+                        elif piece[1] == "N":
+                            pseudo_legal = is_valid_move_knight(piece, (i, j), (r, c), board)
+                        elif piece[1] == "Q":
+                            pseudo_legal = is_valid_move_queen(piece, (i, j), (r, c), board)
+                        elif piece[1] == "K":
+                            pseudo_legal = is_valid_move_king(piece, (i, j), (r, c), board, castling_rights)
+                        
+                        if pseudo_legal:
+                            # Simulate the move to check if it leaves the king in check
+                            board_copy = board.copy(deep=True)
+                            board_copy.iat[r, c] = piece
+                            board_copy.iat[i, j] = "."
+                            # Check if the current player's king is NOT in check after the move
+                            if not is_check(board_copy, turn):
+                                valid_moves.append(((i, j), (r, c)))
+                                
+    return valid_moves

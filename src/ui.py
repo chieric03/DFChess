@@ -1,6 +1,10 @@
 import streamlit as st
 import pandas as pd
-from src.moves import move_piece, is_check, is_checkmate, is_stalemate, submit_move, promote_pawn
+# Import the consolidated handler function and the notation converter
+from src.moves import (
+    move_piece, is_check, is_checkmate, is_stalemate, submit_move, 
+    promote_pawn, _handle_post_move_updates, coords_to_notation # Added coords_to_notation
+)
 from src.board import create_board
 import base64
 
@@ -259,49 +263,23 @@ def submit_move_with_index(start_index, end_index):
     updated_board, valid = move_piece(st.session_state.board, start_index, end_index)
     if not valid:
         return
-    
     st.session_state.board = updated_board
-    st.session_state.move_history.append((start_index, end_index))
+    
+    # Convert indices to notation for history
+    move_coords = (start_index, end_index)
+    move_notation = coords_to_notation(move_coords) 
+    
+    if move_notation:
+        # Get the piece that moved (needed for the history tuple)
+        # Look at the start_index on the *previous* board state before the move was made
+        previous_board = st.session_state.board_history[-1]
+        piece = previous_board.iat[start_index[0], start_index[1]] 
+        st.session_state.move_history.append((move_notation[:2], move_notation[2:], piece))
+    else:
+        # Fallback if notation conversion fails (shouldn't happen with valid indices)
+        st.session_state.move_history.append((str(start_index), str(end_index), "?")) 
+
     st.session_state.board_history.append(updated_board.copy(deep = True))
 
-    #Check for promotion
-    promotion_triggered = False
-    if st.session_state.turn == 'w':
-        for col in range(8):
-            cell = st.session_state.board.iat[0, col]
-            if cell != "." and cell[1] == "P":
-                st.session_state.promotion_pending = True
-                st.session_state.promotion_pos = (0, col)
-                promotion_triggered = True
-                break
-    else:
-        for col in range(8):
-            cell = st.session_state.board.iat[7, col]
-            if cell != "." and cell[1] == "P":
-                st.session_state.promotion_pending = True
-                st.session_state.promotion_pos = (7, col)
-                promotion_triggered = True
-                break
-            
-    if promotion_triggered:
-        st.warning("Pawn promotion pending!")
-        st.rerun()
-        return
-    
-    #Change turn
-    new_turn = "b" if st.session_state.turn == "w" else "w"
-
-    #Check for check
-    if is_check(st.session_state.board, new_turn):
-        st.warning(f"Check! {'White' if new_turn == 'b' else 'Black'} is in check!")
-        if is_checkmate(st.session_state.board, new_turn):
-            st.session_state.last_error =f"Checkmate! {'White' if new_turn == 'b' else 'Black'} wins!"
-            st.session_state.game_status = "game_over"
-            return
-        elif is_stalemate(st.session_state.board, new_turn):
-            st.session_state.last_error ="Stalemate! It's a draw!"
-            st.session_state.game_status = "game_over"
-            return
-        
-    st.session_state.turn = new_turn
-    st.rerun()
+    # Call the consolidated post-move handler
+    _handle_post_move_updates()
