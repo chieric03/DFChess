@@ -5,6 +5,7 @@ DFChess.egg-info/dependency_links.txt
 DFChess.egg-info/requires.txt
 DFChess.egg-info/top_level.txt
 src/__init__.py
-src/app.py
 src/board.py
+src/logger.py
 src/moves.py
+src/ui.py

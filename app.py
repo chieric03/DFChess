@@ -5,7 +5,7 @@ from src.moves import move_piece, is_check, is_checkmate, is_stalemate, submit_m
 from src.board import create_board
 from src.logger import logger
 from src.ui import get_base64_image, images, interactive_board, render_board, show_two_boards_side_by_side
-from src.AI_Opponent import evaluate_board, get_all_valid_moves
+from src.AI_Opponent.AI_Opponent import evaluate_board, get_all_valid_moves
 
 st.set_page_config(layout="wide")
 

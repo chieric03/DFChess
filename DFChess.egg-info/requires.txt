@@ -3,3 +3,9 @@ numpy
 ipykernel
 jupyter
 streamlit
+watchdog
+kagglehub
+chess
+joblib
+scikit-learn
+tensorflow

@@ -8,6 +8,12 @@ Requires-Dist: numpy
 Requires-Dist: ipykernel
 Requires-Dist: jupyter
 Requires-Dist: streamlit
+Requires-Dist: watchdog
+Requires-Dist: kagglehub
+Requires-Dist: chess
+Requires-Dist: joblib
+Requires-Dist: scikit-learn
+Requires-Dist: tensorflow
 Dynamic: author
 Dynamic: author-email
 Dynamic: requires-dist

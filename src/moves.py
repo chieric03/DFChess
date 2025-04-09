@@ -1,7 +1,12 @@
-import src.logger as logger
+import src.logger as logger # Keep logger if used
 import streamlit as st
 import pandas as pd
-from src.AI_Opponent import get_ai_move, simulate_move
+from src.AI_Opponent.AI_Opponent import get_ai_move, simulate_move 
+from src.validation import (
+    is_valid_move_pawn, is_valid_move_rook, is_valid_move_bishop, 
+    is_valid_move_knight, is_valid_move_queen, is_valid_move_king, 
+    is_check, find_king, is_square_attacked, can_piece_attack_square
+)
 def parse_notation(coord: str) -> tuple:
     """
     Takes a user imput that is in chess notation and splits it into board coordinates
@@ -40,18 +45,23 @@ def move_piece(board,start,end):
 
     piece_type = piece[1]
     valid_move = False
+    
+    # Get necessary state from session_state to pass to validation functions
+    en_passant_target = st.session_state.get("en_passant_target", None)
+    castling_rights = st.session_state.get("castling_rights", {}) 
 
     if piece[1] == "P":
-        valid_move = is_valid_move_pawn(piece, start, end, board)
+        valid_move = is_valid_move_pawn(piece, start, end, board, en_passant_target)
+        # Handle en passant capture side effect (removing captured pawn)
+        if valid_move and abs(start[1] - end[1]) == 1 and board.iat[end[0], end[1]] == ".":
+             # This indicates a valid en passant capture based on validation logic
+             board.iat[start[0], end[1]] = "." # Remove the captured pawn
+        # Set en passant target *after* validating the move
         direction = -1 if color == "w" else 1
-        # If the pawn moves two squares forward, set en passant target.
-        if abs(end[0] - start[0]) == 2:
-            st.session_state.en_passant_target = (start[0] + direction, start[1])
-        # En passant capture: pawn moves diagonally into an empty square.
-        if abs(end[1] - start[1]) == 1 and board.iat[end[0], end[1]] == ".":
-            if st.session_state.get("en_passant_target") == (end[0], end[1]):
-                # Remove the opponent pawn that's being captured en passant.
-                board.iat[start[0], end[1]] = "."
+        if abs(end[0] - start[0]) == 2 and valid_move: # Check if it was a valid two-square push
+            st.session_state.en_passant_target = (start[0] + direction, start[1]) # Target square behind the pawn
+        else:
+             st.session_state.en_passant_target = None # Reset if not a two-square push
     elif piece_type == "R":
         valid_move = is_valid_move_rook(piece, start, end, board)
     elif piece_type == "B":
@@ -61,9 +71,27 @@ def move_piece(board,start,end):
     elif piece_type == "Q":
         valid_move = is_valid_move_queen(piece, start, end, board)
     elif piece_type == "K":
-        valid_move = is_valid_move_king(piece, start, end, board)
+        valid_move = is_valid_move_king(piece, start, end, board, castling_rights)
+        # Handle castling side effect (moving the rook)
+        if valid_move and abs(start[1] - end[1]) == 2:
+             # Kingside castling
+             if end[1] > start[1]:
+                 rook_start_col = 7
+                 rook_end_col = 5
+             # Queenside castling
+             else:
+                 rook_start_col = 0
+                 rook_end_col = 3
+             rook_piece = board.iat[start[0], rook_start_col]
+             board.iat[start[0], rook_end_col] = rook_piece
+             board.iat[start[0], rook_start_col] = "."
+             # Update castling rights (king and relevant rook can no longer castle)
+             st.session_state.castling_rights[f"{color}K"] = False
+             rook_side = "kingside" if end[1] > start[1] else "queenside"
+             st.session_state.castling_rights[f"{color}R_{rook_side}"] = False
+
     else:
-        st.session_state.last_error = "Invalid piece!"
+        st.session_state.last_error = "Invalid piece type!" # More specific error
         return board, False
     
     if not valid_move:
@@ -135,34 +163,65 @@ def submit_move(start, end):
     
     #Change turn
     new_turn = "b" if st.session_state.turn == "w" else "w"
+    st.session_state.turn = new_turn # Update turn immediately after player move
 
+    # Check game status before AI move
+    if is_check(st.session_state.board, new_turn):
+        st.session_state.last_error = f"Check! {'White' if new_turn == 'w' else 'Black'} is in check!" # Corrected color logic
+        if is_checkmate(st.session_state.board, new_turn):
+            st.session_state.last_error= f"Checkmate! {'White' if st.session_state.turn == 'b' else 'Black'} wins!" # Corrected winner logic
+            st.session_state.game_status = "game_over"
+            st.rerun()
+            return
+    elif is_stalemate(st.session_state.board, new_turn):
+        st.session_state.last_error= "Stalemate! It's a draw!"
+        st.session_state.game_status = "game_over"
+        st.rerun()
+        return
+    else:
+        st.session_state.last_error = "" # Clear previous error if no check/mate/stalemate
+
+    # AI Move Logic (if applicable)
     if st.session_state.game_mode == "PvAI":
         human_side = st.session_state.player_side[0].lower()  # e.g. "w" or "b"
+        # It's AI's turn if the current turn is not the human side
         if st.session_state.turn != human_side:
-            ai_move = get_ai_move(st.session_state.board, st.session_state.turn, depth=3)
-            st.write("AI Move:", ai_move)  # Debug output
+            st.write("AI is thinking...") # Indicate AI is processing
+            ai_move = get_ai_move(st.session_state.board, st.session_state.turn, depth=3) # Use current turn (which is AI's)
+            st.write(f"AI Move: {ai_move}")  # Debug output
             if ai_move:
+                # Convert notation if needed (assuming get_ai_move returns coordinates)
+                start_coord, end_coord = ai_move
+                # Simulate the move on the board
                 st.session_state.board = simulate_move(st.session_state.board, ai_move)
-                st.session_state.move_history.append(ai_move)
+                # Record move (convert coords back to notation if needed for history)
+                # TODO: Add function to convert coords back to notation if desired for history
+                st.session_state.move_history.append(ai_move) 
                 st.session_state.board_history.append(st.session_state.board.copy(deep=True))
-                st.session_state.turn = human_side
-                st.rerun()
+                
+                # Check for check/mate/stalemate *after* AI move
+                if is_check(st.session_state.board, human_side):
+                     st.session_state.last_error = f"Check! {'White' if human_side == 'w' else 'Black'} is in check!"
+                     if is_checkmate(st.session_state.board, human_side):
+                         st.session_state.last_error= f"Checkmate! {'White' if st.session_state.turn == 'w' else 'Black'} wins!" # AI wins
+                         st.session_state.game_status = "game_over"
+                elif is_stalemate(st.session_state.board, human_side): # Check if AI caused stalemate
+                    st.session_state.last_error= "Stalemate! It's a draw!"
+                    st.session_state.game_status = "game_over"
+                else:
+                    st.session_state.last_error = "" # Clear previous error if AI move didn't result in check/mate
 
+                st.session_state.turn = human_side 
+            else:
+                # This case should ideally not happen if checkmate/stalemate is handled correctly
+                st.write("AI has no valid moves, but it's not checkmate/stalemate?") 
+                # Potentially declare draw or handle error
+                st.session_state.game_status = "game_over" # Or some error state
 
-    #Check for check
-    if is_check(st.session_state.board, new_turn):
-        st.session_state.last_error = f"Check! {'White' if new_turn == 'b' else 'Black'} is in check!"
-        if is_checkmate(st.session_state.board, new_turn):
-            st.session_state.last_error= f"Checkmate! {'White' if new_turn == 'b' else 'Black'} wins!"
-            st.session_state.game_status = "game_over"
-            return
-        elif is_stalemate(st.session_state.board, new_turn):
-            st.session_state.last_error= "Stalemate! It's a draw!"
-            st.session_state.game_status = "game_over"
-            return
-        
-    st.session_state.turn = new_turn
+            st.rerun() # Rerun after AI move completes
+            return # Exit after AI move sequence
 
+    # If not PvAI or it's human's turn in PvAI, just rerun to update UI
     st.rerun()
 
 def find_king(board: pd.DataFrame, color: str) -> tuple:
@@ -235,354 +294,49 @@ def is_square_attacked(board: pd.DataFrame, square: tuple, attacker_color: str) 
 
 def is_stalemate(board: pd.DataFrame, color: str) -> bool:
     """
-    Checks if a player is in stalemate
+    Checks if a player is in stalemate. Requires generating all valid moves.
 
     Parameters:
         board (pd.DataFrame): The chess board
-        color (str): The color of the player
+        color (str): The color of the player to check for stalemate
 
     Returns:
         bool: True if the player is in stalemate, False otherwise
     """
+    from src.AI_Opponent.AI_Opponent import get_all_valid_moves 
 
-    if is_check(board, color):
-        return False
+    if is_check(board, color): # Use is_check from validation.py
+        return False # Cannot be stalemate if in check
+
+    # Check if any valid moves exist for the player
+    valid_moves = get_all_valid_moves(board, color) # get_all_valid_moves handles the check for moving into check
     
-    for i in range(8):
-        for j in range(8):
-            piece = board.iat[i, j]
-            if piece != "." and piece[0] == color:
-                for k in range(8):
-                    for l in range(8):
-                        if (i, j) == (k, l):
-                            continue
-                        if can_piece_attack_square(piece, (i, j), (k, l), board):
-                            board_copy = board.copy(deep = True)
-                            board_copy.iat[k, l] = piece
-                            board_copy.iat[i, j] = "."
-                            if not is_check(board_copy, color):
-                                return False
-    return True
+    return not valid_moves # Stalemate if not in check and no valid moves
 
-def is_check(board: pd.DataFrame, color: str) -> bool:
-    """
-    Checks if a player is in check
-
-    Parameters:
-        board (pd.DataFrame): The chess board
-        color (str): The color of the player
-
-    Returns:
-        bool: True if the player is in check, False otherwise
-    """
-    king_pos = find_king(board, color)
-    if not king_pos:
-        return True
-    attacker_color = "b" if color == "w" else "w"
-    return is_square_attacked(board, king_pos, attacker_color)
 
 def is_checkmate(board: pd.DataFrame, color: str) -> bool:
     """
-    Returns True if the player of color is in checkmate, False otherwise
+    Checks if the player of the given color is in checkmate.
 
     Parameters:
         board (pd.DataFrame): The chess board
-        color (str): The color of the player
+        color (str): The color of the player to check for checkmate
 
     Returns:
         bool: True if the player is in checkmate, False otherwise
     """
+    from src.AI_Opponent.AI_Opponent import get_all_valid_moves
 
     if not is_check(board, color):
-        return False
-    
-    for i in range(8):
-        for j in range(8):
-            piece = board.iat[i, j]
-            if piece != "." and piece[0] == color:
-                for k in range(8):
-                    for l in range(8):
-                        if (i, j) == (k, l):
-                            continue
-                        if can_piece_attack_square(piece, (i, j), (k, l), board):
-                            board_copy = board.copy(deep = True)
-                            board_copy.iat[k, l] = piece
-                            board_copy.iat[i, j] = "."
-                            if not is_check(board_copy, color):
-                                return False
-    return True
+        return False # Cannot be checkmate if not in check
 
-def is_valid_move_pawn(piece, start, end, board):
-    """
-    Checks if a move is valid for a pawn
+    # Check if any valid moves exist for the player
+    valid_moves = get_all_valid_moves(board, color) # get_all_valid_moves handles the check for moving into check
 
-    Parameters:
-        piece (str): The piece being moved (e.g. "wP, bP")
-        start (tuple): The starting position of the piece
-        end (tuple): The ending position of the piece
-        board (pd.DataFrame): The chess board
+    return not valid_moves # Checkmate if in check and no valid moves
 
-    Returns:
-        bool: True if the move is valid, False otherwise
-    """
-    rs, cs = start
-    re, ce = end
-    color = piece[0]
-    direction = -1 if color == "w" else 1
-    start_row = 6 if color == "w" else 1
 
-    #Moving forward
-    if cs == ce:
-        #single step
-        if re == rs + direction and board.iat[re, ce] == ".":
-            return True
-        #double step
-        if rs == start_row and re == rs + 2 * direction:
-            if board.iat[re, ce] == "." and board.iat[re - direction, ce] == ".":
-                return True
-    
-        
-    #Capture
-    if abs(cs - ce) == 1 and re == rs + direction:
-        if board.iat[re, ce] != "." and board.iat[re, ce][0] != color:
-            return True
-        #En passant
-        if "en_passant_target" in st.session_state and st.session_state.en_passant_target == (re, ce):
-            if board.iat[rs, ce] == color + "P":
-                return True
-            return True
-        
-    return False
 
-def is_valid_move_rook(piece, start, end, board):
-    """
-    Checks if a move is valid for a rook
-    
-    Parameters:
-        piece (str): The piece being moved (e.g. "wR, bR")
-        start (tuple): The starting position of the piece
-        end (tuple): The ending position of the piece
-        board (pd.DataFrame): The chess board
-    """
-    rs, cs = start
-    re, ce = end
-
-    if rs != re and cs != ce:
-        return False
-    
-    if rs == re: #Horizontal move
-        step = 1 if ce > cs else -1
-        for col in range(cs + step, ce, step):
-            if board.iat[rs, col] != ".":
-                return False
-            
-    else: #Vertical move
-        step = 1 if re > rs else -1
-        for row in range(rs + step, re, step):
-            if board.iat[row, cs] != ".":
-                return False
-
-    target = board.iat[re, ce]
-
-    if target == ".":
-        return True
-    
-    elif target[0] != piece[0]:
-        return True
-    
-    else: #Friendly piece
-        return False
-
-def is_valid_move_bishop(piece, start, end, board):
-    """
-    Checks if a move is valid for a bishop
-
-    Parameters:
-        piece (str): The piece being moved (e.g. "wB, bB")
-        start (tuple): The starting position of the piece
-        end (tuple): The ending position of the piece
-        board (pd.DataFrame): The chess board
-    
-    Returns:
-        bool: True if the move is valid, False otherwise
-    """
-
-    rs, cs = start
-    re, ce = end
-
-    #checking if move is diagonal
-    if abs(rs - re) != abs(cs - ce):
-        return False
-
-    #getting direction
-    row_step = 1 if re > rs else -1
-    col_step = 1 if ce > cs else -1
-
-    #checking for pieces in the way
-    current_row, current_col = rs + row_step, cs + col_step
-    while current_row != re and current_col != ce:
-        if board.iat[current_row, current_col] != ".":
-            return False
-        current_row += row_step
-        current_col += col_step
-
-    target = board.iat[re, ce]
-
-    if target == ".":
-        return True
-    elif target[0] != piece[0]:
-        return True
-    else: #Friendly piece
-        return False
-
-def is_valid_move_knight(piece, start, end, board):
-    """
-    checks if a move is valid for a knight
-
-    Parameters:
-        piece (str): The piece being moved (e.g. "wN, bN")
-        start (tuple): The starting position of the piece
-        end (tuple): The ending position of the piece
-        board (pd.DataFrame): The chess board
-    
-    Returns:
-        bool: True if the move is valid, False otherwise
-    """
-
-    rs, cs = start
-    re, ce = end
-
-    row_diff = abs(rs - re)
-    col_diff = abs(cs - ce)
-
-    if (row_diff,col_diff) not in [(1,2),(2,1)]:
-        return False
-    
-    target = board.iat[re, ce]
-
-    if target == ".":
-        return True
-    elif target[0] != piece[0]:
-        return True
-    else: #Friendly piece
-        return False
-    
-def is_valid_move_queen(piece, start, end, board):
-    """
-    Checks if a move is valid for a queen
-
-    Parameters:
-        piece (str): The piece being moved (e.g. "wQ, bQ")
-        start (tuple): The starting position of the piece
-        end (tuple): The ending position of the piece
-        board (pd.DataFrame): The chess board
-    
-    Returns:
-        bool: True if the move is valid, False otherwise
-    """
-    
-    rs, cs = start
-    re, ce = end
-
-    if rs == re or cs == ce:
-        if rs == re: #Horizontal
-            step = 1 if ce > cs else -1
-            for col in range(cs + step, ce, step):
-                if board.iat[rs, col] != ".":
-                    return False
-        else: #Vertical move
-            step = 1 if re > rs else -1
-            for row in range(rs + step, re, step):
-                if board.iat[row, cs] != ".":
-                    return False
-    
-    elif abs(rs - re) == abs(cs - ce):
-        row_step = 1 if re > rs else -1
-        col_step = 1 if ce > cs else -1
-        current_row, current_col = rs + row_step, cs + col_step
-        while current_row != re and current_col != ce:
-            if board.iat[current_row, current_col] != ".":
-                return False
-            current_row += row_step
-            current_col += col_step
-    else:
-        return False
-    
-    target = board.iat[re, ce]
-
-    if target == ".":
-        return True
-    elif target[0] != piece[0]:
-        return True
-    else: #Friendly piece
-        return False
-
-def is_valid_move_king(piece, start, end, board):
-    """
-    Checks if a move is valid for a king
-
-    Parameters:
-        piece (str): The piece being moved (e.g. "wK, bK")
-        start (tuple): The starting position of the piece
-        end (tuple): The ending position of the piece
-        board (pd.DataFrame): The chess board
-    
-    Returns:
-        bool: True if the move is valid, False otherwise
-    """
-    rs, cs = start
-    re, ce = end
-
-    if abs(re - rs) > 1 or abs(ce - cs) > 1:
-        return False
-    
-    target = board.iat[re, ce]
-
-    if target == ".":
-        return True
-    elif target[0] != piece[0]:
-        return True
-    else: #Friendly piece
-        return False
-    
-    #Castling
-    if rs == re and abso(ce-cs) == 2:
-        if piece[0] == "w" and start == (7,4):
-            if ce == 6: #Kingside
-                if board.iat[7,5] != "." or board.iat[7,6] != ".":
-                    return False
-                if is_square_attacked(board, (7,4), "b") or is_square_attacked(board, (7,5), "b") or is_square_attacked(board, (7,6), "b"):
-                    return False
-                if not st.session_state.castling_rights("wK", True) or not st.session_state.castling_rights.get("wR_kingside", True):
-                    return False
-                return True
-            elif ce == 2: #Queenside
-                if board.iat[7,1] != "." or board.iat[7,2] != "." or board.iat[7,3] != ".":
-                    return False
-                if is_square_attacked(board, (7,4), "b") or is_square_attacked(board, (7,3), "b") or is_square_attacked(board, (7,2), "b"):
-                    return False
-                if not st.session_state.castling_rights("wK", True) or not st.session_state.castling_rights.get("wR_queenside", True):
-                    return False
-                return True
-        elif piece[0] == "b" and start == (0,4):
-            if ce == 6:
-                if board.iat[0,5] != "." or board.iat[0,6] != ".":
-                    return False
-                if is_square_attacked(board, (0,4), "w") or is_square_attacked(board, (0,5), "w") or is_square_attacked(board, (0,6), "w"):
-                    return False
-                if not st.session_state.castling_rights("bK", True) or not st.session_state.castling_rights.get("bR_kingside", True):
-                    return False
-                return True
-            if ce == 2:
-                if board.iat[0,1] != "." or board.iat[0,2] != "." or board.iat[0,3] != ".":
-                    return False
-                if is_square_attacked(board, (0,4), "w") or is_square_attacked(board, (0,3), "w") or is_square_attacked(board, (0,2), "w"):
-                    return False
-                if not st.session_state.castling_rights("bK", True) or not st.session_state.castling_rights.get("bR_queenside", True):
-                    return False
-                return True
-    return False
-    
 def promote_pawn(board: pd.DataFrame, pos: tuple, piece: str) -> pd.DataFrame:
     """
     Promotes a pawn to a new piece
@@ -590,7 +344,7 @@ def promote_pawn(board: pd.DataFrame, pos: tuple, piece: str) -> pd.DataFrame:
     Parameters:
         board (pd.DataFrame): The chess board
         pos (tuple): The row and column index of the pawn
-        piece (str): The piece to promote the pawn to
+        piece (str): The piece to promote the pawn to (e.g., 'Q', 'R', 'B', 'N')
 
     Returns:
         pd.DataFrame: The updated chess board
@@ -598,9 +352,38 @@ def promote_pawn(board: pd.DataFrame, pos: tuple, piece: str) -> pd.DataFrame:
     row, col = pos
     pawn = board.iat[row, col]
 
+    # Basic check: is it a pawn
     if pawn == "." or pawn[1] != "P":
-        return board
-    
+        st.session_state.last_error = "Cannot promote non-pawn piece."
+        return board # Return original board if not a pawn
+
     color = pawn[0]
+    # Check if pawn is on the promotion rank
+    promotion_rank = 0 if color == 'w' else 7
+    if row != promotion_rank:
+        st.session_state.last_error = "Pawn not on promotion rank."
+        return board # Return original board if not on correct rank
+
+    # Check if the chosen piece is valid
+    if piece not in ['Q', 'R', 'B', 'N']:
+         st.session_state.last_error = f"Invalid promotion piece: {piece}"
+         return board
+
     board.iat[row, col] = color + piece
+    st.session_state.promotion_pending = False # Promotion complete
+    st.session_state.promotion_pos = None
+    st.session_state.last_error = f"Pawn promoted to {color}{piece}." # Confirmation message
+    
+    # After promotion, check for check/mate/stalemate against the opponent
+    opponent_color = 'b' if color == 'w' else 'w'
+    if is_check(board, opponent_color):
+        st.session_state.last_error += f" Check!"
+        if is_checkmate(board, opponent_color):
+             st.session_state.last_error = f"Checkmate! {'White' if color == 'w' else 'Black'} wins by promotion!"
+             st.session_state.game_status = "game_over"
+        # No stalemate check needed here as the opponent will have a turn
+    elif is_stalemate(board, opponent_color): # Check if promotion caused stalemate
+        st.session_state.last_error = "Stalemate by promotion! It's a draw!"
+        st.session_state.game_status = "game_over"
+
     return board
