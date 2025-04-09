@@ -1,1 +1,3 @@
 DATA/lichess_db_standard_rated_2014-07.pgn.zst
+venv/
+DATA/training_data.csv
